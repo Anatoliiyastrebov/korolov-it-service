@@ -310,11 +310,31 @@ export async function handleContact(rawBody, meta = {}) {
       },
     });
   } catch (err) {
-    console.error("[contact] sendMail failed:", err);
+    const detail = {
+      code: err?.code,
+      command: err?.command,
+      responseCode: err?.responseCode,
+      message: err?.message,
+    };
+    console.error("[contact] sendMail failed:", JSON.stringify(detail), {
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      user: process.env.SMTP_USER,
+      from,
+      to,
+    });
+
+    const debugEnabled = process.env.CONTACT_DEBUG === "1";
     return {
       ok: false,
       status: 502,
-      body: { ok: false, error: VALIDATION_MESSAGES[locale].server },
+      body: debugEnabled
+        ? {
+            ok: false,
+            error: VALIDATION_MESSAGES[locale].server,
+            debug: detail,
+          }
+        : { ok: false, error: VALIDATION_MESSAGES[locale].server },
     };
   }
 
