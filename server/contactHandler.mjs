@@ -253,6 +253,42 @@ function buildEmail({ clean, locale, topicLabel, ip, userAgent }) {
   return { text, html };
 }
 
+// Копия клиенту: From = MAIL_FROM (ваш домен), To = email клиента.
+// Так можно легально «доставить письмо на адрес клиента» без подделки From.
+const CLIENT_COPY_TEXT = {
+  de: {
+    subject: "Ihre Anfrage ist eingegangen — Korolov IT-Service",
+    greet: (name) => `Hallo ${name},`,
+    body:
+      "vielen Dank für Ihre Nachricht. Wir haben Ihre Anfrage erhalten und melden uns zeitnah bei Ihnen.\n\nMit freundlichen Grüßen\nKorolov IT-Service",
+  },
+  ru: {
+    subject: "Ваше обращение получено — Korolov IT-Service",
+    greet: (name) => `Здравствуйте, ${name}!`,
+    body:
+      "Спасибо за сообщение. Мы получили вашу заявку и свяжемся с вами в ближайшее время.\n\nС уважением,\nKorolov IT-Service",
+  },
+  ua: {
+    subject: "Ваше звернення отримано — Korolov IT-Service",
+    greet: (name) => `Вітаємо, ${name}!`,
+    body:
+      "Дякуємо за повідомлення. Ми отримали вашу заявку і зв'яжемося з вами найближчим часом.\n\nЗ повагою,\nKorolov IT-Service",
+  },
+};
+
+function buildClientCopyEmail(locale, name) {
+  const L = CLIENT_COPY_TEXT[locale] ?? CLIENT_COPY_TEXT.de;
+  const displayName = name?.trim() || (locale === "de" ? "Kunde" : locale === "ru" ? "клиент" : "клієнт");
+  const text = `${L.greet(displayName)}\n\n${L.body}`;
+  const html = `
+    <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; color:#111; font-size:14px;">
+      <p>${escapeHtml(L.greet(displayName))}</p>
+      <p>${escapeHtml(L.body).replace(/\n/g, "<br>")}</p>
+    </div>
+  `;
+  return { subject: L.subject, text, html };
+}
+
 export async function handleContact(rawBody, meta = {}) {
   const ip = meta.ip ?? "-";
   const userAgent = meta.userAgent ?? "-";
@@ -309,6 +345,27 @@ export async function handleContact(rawBody, meta = {}) {
         "X-Origin-Locale": locale,
       },
     });
+
+    // Опционально: письмо на адрес клиента (From = ваш домен, не «от имени» клиента).
+    const sendClientCopy = process.env.CONTACT_SEND_CLIENT_COPY === "1";
+    if (sendClientCopy) {
+      const copy = buildClientCopyEmail(locale, clean.name);
+      try {
+        await transporter.sendMail({
+          from,
+          to: clean.email,
+          replyTo: to,
+          subject: copy.subject,
+          text: copy.text,
+          html: copy.html,
+          headers: {
+            "X-Mail-Type": "contact-form-client-copy",
+          },
+        });
+      } catch (copyErr) {
+        console.error("[contact] client confirmation email failed:", copyErr?.message ?? copyErr);
+      }
+    }
   } catch (err) {
     const detail = {
       code: err?.code,
